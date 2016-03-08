@@ -1,0 +1,19 @@
+{
+  "name": "expression-language",
+  "version": "1.0.0",
+  "description": "Expression Language Parser Using Jison",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "Expression",
+    "Language",
+    "Jison",
+    "Parser"
+  ],
+  "author": "Pragyan Das",
+  "dependencies": {
+    "jison": "^0.4.17"
+  }
+}
