@@ -14,6 +14,7 @@
   ],
   "author": "Pragyan Das",
   "dependencies": {
-    "jison": "^0.4.17"
+    "jison": "^0.4.17",
+    "q": "^1.4.1"
   }
 }

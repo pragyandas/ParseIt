@@ -1892,11 +1892,13 @@ function LiteralNode(value, loc) {
 function ModelLiteralNode(modelProperty,filter,loc){
     this.modelProperty=modelProperty;
     this.filter=filter;
+    this.loc=loc;
 }
-function WhereLiteralNode(modelProperty,operator,literal){
+function WhereLiteralNode(modelProperty,operator,literal,loc){
     this.modelProperty=modelProperty;
     this.operator=operator;
     this.literal=literal;
+    this.loc=loc
 }
 function SourceLocation(source, start, end) {
 	this.source = source;

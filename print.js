@@ -1,172 +1,273 @@
 "use strict";
-
+var q = require('q');
 module.exports = function(parser) {
 	var ast = parser.ast;
 
 	ast.ProgramNode.prototype.print = function(indent, indentChar) {
-		var elements = this.body;
-		var str = "";
+		var elements = this.body,
+			str = "",
+			promises = [],
+			deferred = q.defer();
 
 		for (var i = 0, len = elements.length; i < len; i++) {
-			str += elements[i].print(indent, indentChar) + "\n";
+			promises.push(elements[i].print(indent, indentChar));
 		}
 
-		return str;
+		q.allSettled(promises).then(function(results) {
+			results.map(function(d) {
+				return d.value;
+			}).forEach(function(d) {
+				str += d + "\n";
+			})
+			deferred.resolve(str);
+		});
+
+		return deferred.promise;
 	};
 
 	ast.EmptyStatementNode.prototype.print = function(indent, indentChar) {
-		return indent + ";";
+		var deferred = q.defer();
+		deferred.resolve(indent + ";");
+		return deferred.promise;
 	};
 
 	ast.BlockStatementNode.prototype.print = function(indent, indentChar) {
 		var statements = this.body;
 		var str = indent + "{\n";
 		var newIndent = indent + indentChar;
+		var deferred = q.defer();
+		var promises = [];
 
 		for (var i = 0, len = statements.length; i < len; i++) {
-			str += statements[i].print(newIndent, indentChar) + "\n";
+			promises.push(statements[i].print(newIndent, indentChar));
 		}
 
-		return str += indent + "}";
+		q.allSettled(promises).then(function(results) {
+			results.map(function(d) {
+				return d.value;
+			}).forEach(function(d) {
+				str += d + "\n";
+			})
+			str += indent + "}";
+			deferred.resolve(str);
+		});
+
+		return deferred.promise;
 	};
 
 	ast.ExpressionStatementNode.prototype.print = function(indent, indentChar) {
-		return indent + this.expression.print(indent, indentChar) + ";";
+		var deferred = q.defer();
+		this.expression.print(indent, indentChar).then(function(result) {
+			deferred.resolve(indent + result + ";");
+		})
+		return deferred.promise;
 	};
 
 	ast.IfStatementNode.prototype.print = function(indent, indentChar) {
-		var str = indent + "if (" + this.test.print("", "") + ")\n";
-		var consequent = this.consequent;
-		var alternate = this.alternate;
-
-		if (consequent.type === "BlockStatement") {
-			str += consequent.print(indent, indentChar);
-		} else {
-			str += consequent.print(indent + indentChar, indentChar);
-		}
-
-		if (alternate !== null) {
-			str += "\n" + indent + "else\n";
-
-			if (alternate.type === "BlockStatement") {
-				str += alternate.print(indent, indentChar);
-			} else {
-				str += alternate.print(indent + indentChar, indentChar);
-			}
-		}
-
-		return str;
+		var deferred = q.defer();
+		this.test.print("", "").then(function(result) {
+			var str = indent + "if (" + result + ")\n";
+			var consequent = this.consequent;
+			var alternate = this.alternate;
+			var consequent_indent = consequent.type === "BlockStatement" ? indent : indent + indentChar;
+			consequent.print(consequent_indent, indentChar).then(function(c) {
+				str += c;
+				if (alternate !== null) {
+					str += "\n" + indent + "else\n";
+					var alternate_indent = consequent.type === "BlockStatement" ? indent : indent + indentChar;
+					alternate.print(alternate_indent, indentChar).then(function(a) {
+						str += a;
+						deferred.resolve(str);
+					})
+				} else {
+					deferred.resolve(str);
+				}
+			});
+		}.bind(this));
+		return deferred.promise;
 	};
 
 	ast.LabeledStatementNode.prototype.print = function(indent, indentChar) {
-		return indent + this.label.print("", "") + ": " + this.body.print("", "");
+		var deferred = q.defer();
+		this.label.print("", "").then(function(d) {
+			this.body.print("", "").then(function(e) {
+				deferred.resolve(indent + d + ": " + e);
+			})
+		}.bind(this))
+		return deferred.promise;
 	};
 
 	ast.BreakStatementNode.prototype.print = function(indent, indentChar) {
+		var deferred = q.defer();
 		var str = indent + "break";
 		var label = this.label;
-
-		if (label !== null)
-			str += " " + label.print("", "");
-
-		return str + ";";
+		if (label !== null) {
+			label.print("", "").then(function(result) {
+				str += " " + result;
+				deferred.resolve(str + ";");
+			});
+		} else {
+			deferred.resolve(str + ";");
+		}
+		return deferred.promise;
 	};
 
 	ast.ContinueStatementNode.prototype.print = function(indent, indentChar) {
+		var deferred = q.defer();
 		var str = indent + "continue";
 		var label = this.label;
 
-		if (label !== null)
-			str += " " + label.print("", "");
+		if (label !== null) {
+			label.print("", "").then(function(result) {
+				str += " " + result;
+				deferred.resolve(str + ";");
+			});
+		} else {
+			deferred.resolve(str + ";");
+		}
 
-		return str + ";";
+		return deferred.promise;
 	};
 
 	ast.WithStatementNode.prototype.print = function(indent, indentChar) {
-		var str = indent + "with (" + this.object.print("", "") + ")\n";
-		var body = this.body;
+		var deferred = q.defer(),
+			str = "";
+		this.object.print("", "").then(function(o) {
+			str += indent + "with (" + o + ")\n";
+			var body = this.body;
+			var body_indent = body.type === "BlockStatement" ? indent : indent + indentChar;
+			body.print(body_indent, indentChar).then(function(b) {
+				str += b;
+				deferred.resolve(str);
+			})
+		}.bind(this));
 
-		if (body.type === "BlockStatement") {
-			str += body.print(indent, indentChar);
-		} else {
-			str += body.print(indent + indentChar, indentChar);
-		}
-
-		return str;
+		return deferred.promise;
 	};
 
 	ast.SwitchStatementNode.prototype.print = function(indent, indentChar) {
-		var str = indent + "switch (" + this.discriminant.print("", "") + ")\n" + indent + "{\n";
-		var cases = this.cases;
-		var newIndent = indent + indentChar;
+		var deferred = q.defer();
+		this.discriminant.print("", "").then(function(d) {
+			var str = indent + "switch (" + d + ")\n" + indent + "{\n";
+			var casePromises = [];
+			var newIndent = indent + indentChar;
+			var cases = this.cases;
+			for (var i = 0, len = cases.length; i < len; i++) {
+				casePromises.push(cases[i].print(newIndent, indentChar));
+			}
+			q.allSettled(casePromises).then(function(results) {
+				results.map(function(d) {
+					return d.value;
+				}).forEach(function(result) {
+					str += result;
+				})
+				deferred.resolve(str);
+			})
+		}.bind(this));
 
-		for (var i = 0, len = cases.length; i < len; i++) {
-			str += cases[i].print(newIndent, indentChar);
-		}
-
-		return str + indent + "}";
+		return deferred.promise;
 	};
 
 	ast.ReturnStatementNode.prototype.print = function(indent, indentChar) {
 		var str = indent + "return";
 		var argument = this.argument;
+		var deferred = q.defer();
+		if (argument !== null) {
+			argument.print("", "").then(function(result) {
+				str += " " + result + ";";
+				deferred.resolve(str);
+			})
+		} else {
+			deferred.resolve(str + ";");
+		}
 
-		if (argument !== null)
-			str += " " + argument.print("", "");
-
-		return str + ";";
+		return deferred.promise;
 	};
 
 	ast.ThrowStatementNode.prototype.print = function(indent, indentChar) {
 		var str = indent + "throw";
 		var argument = this.argument;
+		var deferred = q.defer();
+		if (argument !== null) {
+			argument.print("", "").then(function(result) {
+				str += " " + result + ";";
+				deferred.resolve(str);
+			});
+		} else {
+			deferred.resolve(str + ";");
+		}
 
-		if (argument !== null)
-			str += " " + argument.print("", "");
-
-		return str + ";";
+		return deferred.promise;
 	};
 
 	ast.TryStatementNode.prototype.print = function(indent, indentChar) {
 		var str = indent + "try\n";
 		var handlers = this.handlers;
 		var finalizer = this.finalizer;
+		var deferred = q.defer();
 
-		str += this.block.print(indent, indentChar);
+		this.block.print(indent, indentChar).then(function(result) {
+			str += result;
 
-		if (handlers !== null)
-			str += "\n" + handlers.print(indent, indentChar);
+			if (handlers != null) {
+				handlers.print(indent, indentChar).then(function(h) {
+					str += "\n" + h;
 
-		if (finalizer !== null)
-			str += "\n" + indent + "finally\n" + finalizer.print(indent, indentChar);
+					if (finalizer != null) {
+						finalizer.print(indent, indentChar).then(function(f) {
+							str += "\n" + indent + "finally\n" + f;
+							deferred.resolve(str);
+						})
+					} else {
+						deferred.resolve(str);
+					}
+				})
+			} else {
+				if (finalizer != null) {
+					finalizer.print(indent, indentChar).then(function(f) {
+						str += "\n" + indent + "finally\n" + f;
+						deferred.resolve(str);
+					})
+				} else {
+					deferred.resolve(str);
+				}
+			}
+		});
 
-		return str;
+		return deferred.promise;
 	};
 
 	ast.WhileStatementNode.prototype.print = function(indent, indentChar) {
-		var str = indent + "while (" + this.test.print("", "") + ")\n";
+		var str = "";
 		var body = this.body;
+		var deferred = q.defer();
+		this.test.print("", "").then(function(result) {
+			str += indent + "while (" + result + ")\n";
+			var body_indent = body.type === "BlockStatement" ? indent : indent + indentChar;
+			body.print(body_indent, indentChar).then(function(b) {
+				str += b;
+				deferred.resolve(str);
+			})
+		});
 
-		if (body.type === "BlockStatement") {
-			str += body.print(indent, indentChar);
-		} else {
-			str += body.print(indent + indentChar, indentChar);
-		}
-
-		return str;
+		return deferred.promise;
 	};
 
 	ast.DoWhileStatementNode.prototype.print = function(indent, indentChar) {
 		var str = indent + "do\n";
 		var body = this.body;
+		var deferred = q.defer();
+		var body_indent = body.type === "BlockStatement" ? indent : indent + indentChar;
 
-		if (body.type === "BlockStatement") {
-			str += body.print(indent, indentChar) + "\n";
-		} else {
-			str += body.print(indent + indentChar, indentChar) + "\n";
-		}
+		body.print(body_indent, indentChar).then(function(result) {
+			str += result + "\n";
+			this.test.print("", "").then(function(t) {
+				str += indent + "while (" + this.test.print("", "") + ");";
+				deferred.resolve(str);
+			})
+		})
 
-		return str + indent + "while (" + this.test.print("", "") + ");";
+		return deferred.promise;
 	};
 
 	ast.ForStatementNode.prototype.print = function(indent, indentChar) {
@@ -237,7 +338,9 @@ module.exports = function(parser) {
 	};
 
 	ast.DebugggerStatementNode.prototype.print = function(indent, indentChar) {
-		return indent + "debugger;"
+		var deferred = q.defer();
+		deferred.resolve(indent + "debugger;")
+		return deferred.promise;
 	};
 
 	ast.FunctionDeclarationNode.prototype.print = function(indent, indentChar) {
@@ -265,43 +368,70 @@ module.exports = function(parser) {
 	ast.VariableDeclarationNode.prototype.print = function(indent, indentChar) {
 		var str = indent + this.kind + " ";
 		var declarations = this.declarations;
-
+		var deferred = q.defer();
+		var promises = [];
 		for (var i = 0, len = declarations.length; i < len; i++) {
-			if (i !== 0)
-				str += ", ";
-
-			str += declarations[i].print("", "");
+			promises.push(declarations[i].print("", ""));
 		}
 
-		return str;
+		q.allSettled(promises).then(function(results) {
+			results.map(function(d) {
+				return d.value;
+			}).forEach(function(result, i) {
+				if (i !== 0)
+					str += ", ";
+				str += result;
+			});
+			deferred.resolve(str);
+		})
+
+		return deferred.promise;
 	};
 
 	ast.VariableDeclaratorNode.prototype.print = function(indent, indentChar) {
-		var str = this.id.print("", "");
-		var init = this.init;
+		var deferred = q.defer();
+		this.id.print("", "").then(function(result) {
+			var str = result;
+			var init = this.init;
+			if (init != null) {
+				init.print("", "").then(function(i) {
+					str += "=" + i;
+					deferred.resolve(str);
+				})
+			} else {
+				deferred.resolve(str);
+			}
+		}.bind(this))
 
-		if (init !== null)
-			str += " = " + init.print("", "");
-
-		return str;
+		return deferred.promise;
 	};
 
 	ast.ThisExpressionNode.prototype.print = function(indent, indentChar) {
-		return "this";
+		var deferred = q.defer();
+		deferred.resolve("this");
+		return deferred.promise;
 	};
 
 	ast.ArrayExpressionNode.prototype.print = function(indent, indentChar) {
 		var str = "[";
 		var elements = this.elements;
-
+		var deferred = q.defer();
 		for (var i = 0, len = elements.length; i < len; i++) {
-			if (i !== 0)
-				str += ", ";
-
-			str += elements[i].print("", "");
+			promises.push(elements[i].print("", ""));
 		}
 
-		return str + "]";
+		q.allSettled(promises).then(function(results) {
+			results.map(function(d) {
+				return d.value;
+			}).forEach(function(result, i) {
+				if (i !== 0)
+					str += ", ";
+				str += result;
+			});
+			deferred.resolve(str + "]");
+		});
+
+		return deferred.promise;
 	};
 
 	ast.ObjectExpressionNode.prototype.print = function(indent, indentChar) {
@@ -376,49 +506,96 @@ module.exports = function(parser) {
 	ast.SequenceExpressionNode.prototype.print = function(indent, indentChar) {
 		var str = "";
 		var expressions = this.expressions;
-
+		var deferred = q.defer();
+		var promises = [];
 		for (var i = 0, len = expressions.length; i < len; i++) {
-			if (i !== 0)
-				str += ", ";
 
-			str += expressions[i].print("", "");
+			promises.push(expressions[i].print("", ""));
 		}
 
-		return str;
+		q.allSettled(promises).then(function(results) {
+			results.map(function(d) {
+				return d.value;
+			}).forEach(function(result, i) {
+				if (i !== 0)
+					str += ", ";
+				str += result;
+			})
+			deferred.resolve(str);
+		})
+
+		return deferred.prromise;
 	};
 
 	ast.UnaryExpressionNode.prototype.print = function(indent, indentChar) {
 		var operator = this.operator;
-
+		var deferred = q.defer();
 		if (operator === "delete" || operator === "void" || operator === "typeof") {
-			return operator + " (" + this.argument.print("", "") + ")";
+			this.argument.print("", "").then(function(result) {
+				deferred.resolve(operator + "(" + result + ")");
+			});
 		} else {
-			return operator + "(" + this.argument.print("", "") + ")";
+			this.argument.print("", "").then(function(result) {
+				deferred.resolve(operator + "(" + result + ")");
+			});
 		}
+		return deferred.promise;
 	};
 
 	ast.BinaryExpressionNode.prototype.print = function(indent, indentChar) {
-		return "(" + this.left.print("", "") + ") " + this.operator + " (" + this.right.print("", "") + ")";
+		var deferred = q.defer();
+		this.left.print("", "").then(function(left) {
+			this.right.print("", "").then(function(right) {
+				deferred.resolve("(" + left + ") " + this.operator + " (" + right + ")");
+			}.bind(this))
+		}.bind(this))
+		return deferred.promise;
 	};
 
 	ast.AssignmentExpressionNode.prototype.print = function(indent, indentChar) {
-		return this.left.print("", "") + " " + this.operator + " (" + this.right.print("", "") + ")";
+		var deferred = q.defer();
+		this.left.print("", "").then(function(l) {
+			this.right.print("", "").then(function(r) {
+				deferred.resolve(l + " " + this.operator + " (" + r + ")");
+			}.bind(this));
+		}.bind(this));
+		return deferred.promise;
 	};
 
 	ast.UpdateExpressionNode.prototype.print = function(indent, indentChar) {
-		if (this.prefix) {
-			return "(" + this.operator + this.argument.print("", "") + ")";
-		} else {
-			return "(" + this.argument.print("", "") + this.operator + ")";
-		}
+		var deferred = q.defer();
+		this.argument.print("", "").then(function(result) {
+			if (this.prefix) {
+				deferred.resolve("(" + this.operator + result + ")");
+			} else {
+				deferred.resolve("(" + result + this.operator + ")");
+			}
+		}.bind(this));
+
+		return deferred.promise;
 	};
 
 	ast.LogicalExpressionNode.prototype.print = function(indent, indentChar) {
-		return "(" + this.left.print("", "") + ") " + this.operator + " (" + this.right.print("", "") + ")";
+		var deferred = q.defer();
+		q.allSettled([this.left.print("", ""), this.right.print("", "")]).then(function(results) {
+			results = results.map(function(d) {
+				return d.value;
+			})
+			deferred.resolve("(" + results[0] + ") " + this.operator + " (" + results[1] + ")");
+		}.bind(this));
+
+		return deferred.promise;
 	};
 
 	ast.ConditionalExpressionNode.prototype.print = function(indent, indentChar) {
-		return "(" + this.test.print("", "") + ") ? " + this.consequent.print("", "") + " : " + this.alternate.print("", "");
+		var deferred = q.defer();
+		q.allSettled([this.test.print("", ""), this.consequent.print("", ""), this.alternate.print("", "")]).then(function(results) {
+			results = results.map(function(d) {
+				return d.value;
+			})
+			deferred.resolve("(" + results[0] + ") ? " + result[1] + " : " + results[2]);
+		});
+		return deferred.promise;
 	};
 
 	ast.NewExpressionNode.prototype.print = function(indent, indentChar) {
@@ -442,25 +619,50 @@ module.exports = function(parser) {
 	};
 
 	ast.CallExpressionNode.prototype.print = function(indent, indentChar) {
-		var str = this.callee.print("", "") + "(";
+		var deferred = q.defer();
 		var args = this.arguments;
+		this.callee.print("", "").then(function(result) {
 
-		for (var i = 0, len = args.length; i < len; i++) {
-			if (i !== 0)
-				str += ", ";
+			var str = result + "(";
+			var promises = [];
 
-			str += args[i].print("", "");
-		}
+			for (var i = 0, len = args.length; i < len; i++) {
+				promises.push(args[i].print("", ""));
+			}
 
-		return str + ")";
+			q.allSettled(promises).then(function(results) {
+				results.map(function(d) {
+					return d.value
+				}).forEach(function(d, i) {
+					if (i !== 0)
+						str += ", ";
+					str += d;
+				})
+				deferred.resolve(str + ")");
+			})
+
+		})
+		return deferred.promise;
 	};
 
 	ast.MemberExpressionNode.prototype.print = function(indent, indentChar) {
+		var deferred = q.defer();
 		if (this.computed) {
-			return this.object.print("", "") + "[" + this.property.print("", "") + "]";
+			q.allSettled([this.object.print("", ""), this.property.print("", "")]).then(function(results) {
+				results = results.map(function(d) {
+					return d.value;
+				});
+				deferred.resolve(results[0] + "[" + results[1] + "]");
+			});
 		} else {
-			return this.object.print("", "") + "." + this.property.print("", "");
+			q.allSettled([this.object.print("", ""), this.property.print("", "")]).then(function(results) {
+				results = results.map(function(d) {
+					return d.value;
+				});
+				deferred.resolve(results[0] + "." + results[1]);
+			});
 		}
+		return deferred.promise;
 	};
 
 	ast.SwitchCaseNode.prototype.print = function(indent, indentChar) {
@@ -468,18 +670,35 @@ module.exports = function(parser) {
 		var test = this.test;
 		var consequent = this.consequent;
 		var newIndent = indent + indentChar;
-
+		var deferred = q.defer();
+		var promises = [];
+		for (var i = 0, len = consequent.length; i < len; i++) {
+			promises.push(consequent[i].print(newIndent, indentChar));
+		}
 		if (test !== null) {
-			str += "case " + test.print("", "") + ":\n";
+			test.print("", "").then(function(t) {
+				str += "case" + t + ":\n";
+				q.allSettled(promises).then(function(results) {
+					results.map(function(d) {
+						return d.value;
+					}).forEach(function(result) {
+						str += result + "\n";
+					});
+					deferred.resolve(str);
+				});
+			})
 		} else {
 			str += "default:\n";
+			q.allSettled(promises).then(function(results) {
+				results.map(function(d) {
+					return d.value;
+				}).forEach(function(result) {
+					str += result + "\n";
+				});
+				deferred.resolve(str);
+			});
 		}
-
-		for (var i = 0, len = consequent.length; i < len; i++) {
-			str += consequent[i].print(newIndent, indentChar) + "\n";
-		}
-
-		return str;
+		return deferred.promise;
 	};
 
 	ast.CatchClauseNode.prototype.print = function(indent, indentChar) {
@@ -490,10 +709,46 @@ module.exports = function(parser) {
 	};
 
 	ast.IdentifierNode.prototype.print = function(indent, indentChar) {
-		return this.name;
+		var deferred = q.defer();
+		deferred.resolve(this.name);
+		return deferred.promise;
 	};
 
 	ast.LiteralNode.prototype.print = function(indent, indentChar) {
-		return this.value;
+		var deferred = q.defer();
+		deferred.resolve(this.value);
+		return deferred.promise;
+	};
+
+	ast.ModelLiteralNode.prototype.print = function(indent, indentChar) {
+		var modelProperty = this.modelProperty.value.replace(/[']+/g, "").split('.');
+		var modelName = modelProperty[0];
+		var propertyName = modelProperty[1];
+		if (this.filter === null) {
+			return {
+				modelName: modelName,
+				propertyName: propertyName
+			};
+		} else {
+			var deferred = q.defer();
+			var filter = this.filter.print(indent, indentChar).then(function(value) {
+				deferred.resolve(1);
+			});
+			return deferred.promise;
+		}
+	};
+
+	ast.WhereLiteralNode.prototype.print = function(indent, indentChar) {
+		var modelProperty = this.modelProperty.print(indent, indentChar);
+		var deferred = q.defer();
+		setTimeout(function() {
+			deferred.resolve({
+				modelName: modelProperty.modelName,
+				propertyName: modelProperty.propertyName,
+				operator: this.operator,
+				literal: this.literal.print(indent, indentChar)
+			});
+		}.bind(this), 2000);
+		return deferred.promise;
 	};
 };
