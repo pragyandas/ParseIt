@@ -2,13 +2,13 @@
 var q = require('q');
 module.exports = function(parser) {
 	var ast = parser.ast;
-
-	ast.ProgramNode.prototype.print = function(indent, indentChar) {
+	var instance;
+	ast.ProgramNode.prototype.print = function(indent, indentChar, inst) {
 		var elements = this.body,
 			str = "",
 			promises = [],
 			deferred = q.defer();
-
+		instance = inst;
 		for (var i = 0, len = elements.length; i < len; i++) {
 			promises.push(elements[i].print(indent, indentChar));
 		}
@@ -19,7 +19,7 @@ module.exports = function(parser) {
 			}).forEach(function(d) {
 				str += d + "\n";
 			})
-			deferred.resolve(str);
+			deferred.resolve(eval(str));
 		});
 
 		return deferred.promise;
@@ -749,6 +749,13 @@ module.exports = function(parser) {
 				literal: this.literal.print(indent, indentChar)
 			});
 		}.bind(this), 2000);
+		return deferred.promise;
+	};
+
+	ast.InstanceLiteralNode.prototype.print = function(indent, indentChar) {
+		var deferred = q.defer();
+		var str = this.operation ? 'instance' + "." + this.expression + "." + this.operation : 'instance' + "." + this.expression;
+		deferred.resolve(str);
 		return deferred.promise;
 	};
 };

@@ -119,6 +119,7 @@ RegularExpressionLiteral {RegularExpressionBody}\/{RegularExpressionFlags}
 "super"                            return "SUPER";
 "@m"                               return "@M";
 "where"                            return "@W";
+"@i"                               return "@I";
 {Identifier}                       parser.restricted = false; return "IDENTIFIER";
 {DecimalLiteral}                   parser.restricted = false; return "NUMERIC_LITERAL";
 {HexIntegerLiteral}                parser.restricted = false; return "NUMERIC_LITERAL";
@@ -1450,6 +1451,7 @@ Literal
     | StringLiteral
     | RegularExpressionLiteral
     | ModelExpressionLiteral
+    | InstanceExpressionLiteral
     ;
 
 NullLiteral
@@ -1502,6 +1504,16 @@ RegularExpressionLiteralBegin
         }
     ;
 
+InstanceExpressionLiteral 
+    : "@I" "." "IDENTIFIER" "." "IDENTIFIER"
+        {
+            $$=new InstanceLiteralNode($3,$5,createSourceLocation(null,@1,@5));
+        }
+    | "@I" "." IDENTIFIER
+        {
+            $$=new InstanceLiteralNode($3,null,createSourceLocation(null,@1,@3));
+        }
+    ;
 
 ModelExpressionLiteral
     : "@M" StringLiteral
@@ -1889,6 +1901,12 @@ function LiteralNode(value, loc) {
 	this.loc = loc;
 }
 
+function InstanceLiteralNode(expression,operation,loc){
+    this.expression=expression;
+    this.operation=operation;
+    this.loc=loc;
+}
+
 function ModelLiteralNode(modelProperty,filter,loc){
     this.modelProperty=modelProperty;
     this.filter=filter;
@@ -1967,3 +1985,4 @@ parser.ast.IdentifierNode = IdentifierNode;
 parser.ast.LiteralNode = LiteralNode;
 parser.ast.ModelLiteralNode=ModelLiteralNode;
 parser.ast.WhereLiteralNode=WhereLiteralNode;
+parser.ast.InstanceLiteralNode=InstanceLiteralNode;
